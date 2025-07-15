@@ -29,7 +29,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-
 async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expr = update.message.text.strip()
 
@@ -37,7 +36,7 @@ async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     math_keywords = [
-        r"\+", "-", r"\*", "/", r"\*\*", "%", r"\^", r"", r"", ",",
+        r"\+", "-", r"\*", "/", r"\*\*", "%", r"\^", ",",
         "sin", "cos", "tan", "sqrt", "log", "exp", "abs", "round", "pow", "pi", "e"
     ]
     if not any(re.search(kw, expr.lower()) for kw in math_keywords):
@@ -70,6 +69,4 @@ async def main():
 
 if __name__ == "__main__":
     import asyncio
-    import nest_asyncio
-    nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(main())
+    asyncio.run(main())
