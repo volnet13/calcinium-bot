@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: calcinium-bot
-    env: python
-    plan: free
-    buildCommand: ""
-    startCommand: python3 calcinium_bot.py
