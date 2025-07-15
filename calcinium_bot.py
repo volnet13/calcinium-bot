@@ -31,17 +31,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expr = update.message.text.strip()
-
     if not any(char.isdigit() for char in expr):
         return
-
     math_keywords = [
-        r"\+", "-", r"\*", "/", r"\*\*", "%", r"\^", ",",
+        r"\+", "-", r"\*", "/", r"\*\*", "%", r"\^", r"", r"", ",",
         "sin", "cos", "tan", "sqrt", "log", "exp", "abs", "round", "pow", "pi", "e"
     ]
     if not any(re.search(kw, expr.lower()) for kw in math_keywords):
         return
-
     try:
         result = safe_eval(expr)
         await update.message.reply_text(
