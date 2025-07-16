@@ -110,34 +110,73 @@ def safe_eval(expr):
 
 def is_math_expression(expr):
     """Check if the text looks like a mathematical expression"""
+    
+    # Skip if message is too long (likely not a math expression)
+    if len(expr) > 100:
+        return False
+    
+    # Skip common idiomatic expressions
+    idiomatic_patterns = [
+        r'\b24\*7\b',  # 24*7 as idiom for 24/7
+        r'\b24\s*\*\s*7\b',  # 24 * 7 with spaces
+        r'\b7\*24\b',  # 7*24
+        r'\b365\*24\b',  # 365*24
+        r'\b24/7\b',  # 24/7
+    ]
+    
+    for pattern in idiomatic_patterns:
+        if re.search(pattern, expr, re.IGNORECASE):
+            return False
+    
+    # Skip if it contains letters mixed with numbers in a non-mathematical way
+    # This catches things like "work 24*7" or "available 24*7"
+    if re.search(r'[a-zA-Z]\s*\d+\s*[\*\+\-\/]\s*\d+', expr) or re.search(r'\d+\s*[\*\+\-\/]\s*\d+\s*[a-zA-Z]', expr):
+        return False
+    
     # Must contain at least one digit
     if not any(char.isdigit() for char in expr):
         return False
     
+    # Must be relatively short and focused
+    words = expr.split()
+    if len(words) > 5:  # If more than 5 words, likely not a math expression
+        return False
+    
     # Ignore if it contains common non-math words
     non_math_words = [
+        'work', 'available', 'online', 'service', 'support', 'help',
+        'hours', 'days', 'time', 'schedule', 'shift', 'open',
         'round', 'game', 'match', 'tournament', 'level', 'stage',
         'chapter', 'episode', 'season', 'day', 'week', 'month',
-        'year', 'time', 'hour', 'minute', 'second', 'page',
+        'year', 'hour', 'minute', 'second', 'page', 'will', 'now',
         'step', 'phase', 'part', 'section', 'question', 'problem',
         'test', 'exam', 'quiz', 'lesson', 'class', 'grade',
         'score', 'point', 'goal', 'target', 'limit', 'max',
         'min', 'total', 'sum', 'count', 'number', 'amount',
-        'price', 'cost', 'value', 'rate', 'percent', 'degree'
+        'price', 'cost', 'value', 'rate', 'percent', 'degree',
+        'host', 'server', 'bot', 'it', 'this', 'that', 'the'
     ]
     
     # Check if expression contains non-math context words
-    words = expr.lower().split()
     for word in words:
         # Remove punctuation for word checking
-        clean_word = re.sub(r'[^\w]', '', word)
+        clean_word = re.sub(r'[^\w]', '', word.lower())
         if clean_word in non_math_words:
             return False
     
+    # Expression should be mostly mathematical symbols and numbers
+    # Count mathematical vs non-mathematical characters
+    math_chars = len(re.findall(r'[\d\+\-\*/\^\(\)\.\s]', expr))
+    total_chars = len(expr)
+    
+    # If less than 70% mathematical characters, probably not a math expression
+    if total_chars > 0 and (math_chars / total_chars) < 0.7:
+        return False
+    
     # Must contain mathematical operators (not just functions)
     operator_patterns = [
-        r'\+', r'-', r'\*', r'/', r'\*\*', r'%', r'=',
-        r'\(.*\)',  # parentheses with content
+        r'\d+\s*[\+\-\*/\^%]\s*\d+',  # Number operator number
+        r'\([^)]*[\+\-\*/\^%][^)]*\)',  # Operations within parentheses
     ]
     
     has_operator = any(re.search(pattern, expr) for pattern in operator_patterns)
@@ -153,7 +192,15 @@ def is_math_expression(expr):
     
     has_function = any(re.search(pattern, expr.lower()) for pattern in function_patterns)
     
-    return has_operator or has_function
+    # Must be a standalone mathematical expression or start with clear math intent
+    if not (has_operator or has_function):
+        return False
+    
+    # Additional check: if it's a simple expression like "24*7" without math context, skip it
+    if re.match(r'^\s*\d+\s*\*\s*\d+\s*$', expr) and not any(word in expr.lower() for word in ['calculate', 'compute', 'solve', '=']):
+        return False
+    
+    return True
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
