@@ -3,6 +3,8 @@ import math
 import re
 import ast
 import operator
+import signal
+import sys
 from telegram import Update, BotCommand
 from telegram.ext import (
     ApplicationBuilder,
@@ -221,7 +223,18 @@ async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+async def shutdown_handler(app):
+    """Gracefully shutdown the application"""
+    print("🛑 Shutting down bot...")
+    try:
+        await app.stop()
+        await app.shutdown()
+        print("✅ Bot shutdown complete")
+    except Exception as e:
+        print(f"❌ Error during shutdown: {e}")
+
 async def main():
+    # Build the application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Set bot commands for the menu
@@ -229,32 +242,72 @@ async def main():
         BotCommand("start", "Start the bot and see welcome message"),
         BotCommand("help", "Show help and available functions"),
     ]
-    await app.bot.set_my_commands(commands)
+    
+    try:
+        await app.bot.set_my_commands(commands)
+    except Exception as e:
+        print(f"Warning: Could not set bot commands: {e}")
 
     # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_expression))
 
-    # Use webhooks instead of polling for web service deployment
+    # Setup signal handlers for graceful shutdown
+    def signal_handler(sig, frame):
+        print(f"\n🛑 Received signal {sig}, shutting down...")
+        # Create a new event loop for shutdown if needed
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(shutdown_handler(app))
+            else:
+                loop.run_until_complete(shutdown_handler(app))
+        except RuntimeError:
+            # If we can't get the loop, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(shutdown_handler(app))
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Get webhook configuration
     webhook_url = os.environ.get("WEBHOOK_URL")
     port = int(os.environ.get("PORT", 10000))
     
-    if webhook_url:
-        # Production: Use webhooks
-        print(f"🌐 Starting webhook server on port {port}")
-        await app.bot.set_webhook(url=f"{webhook_url}/webhook")
-        await app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path="/webhook",
-            webhook_url=f"{webhook_url}/webhook"
-        )
-    else:
-        # Development: Use polling
-        print("🤖 Calcinium bot is running with polling...")
-        await app.run_polling()
+    try:
+        if webhook_url:
+            # Production: Use webhooks
+            print(f"🌐 Starting webhook server on port {port}")
+            await app.bot.set_webhook(url=f"{webhook_url}/webhook")
+            await app.run_webhook(
+                listen="0.0.0.0",
+                port=port,
+                url_path="/webhook",
+                webhook_url=f"{webhook_url}/webhook"
+            )
+        else:
+            # Development: Use polling
+            print("🤖 Calcinium bot is running with polling...")
+            await app.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        print(f"❌ Error running bot: {e}")
+        await shutdown_handler(app)
+    finally:
+        # Ensure cleanup
+        await shutdown_handler(app)
 
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
+    finally:
+        print("👋 Goodbye!")
