@@ -5,6 +5,7 @@ import ast
 import operator
 import signal
 import sys
+import asyncio
 from telegram import Update, BotCommand
 from telegram.ext import (
     ApplicationBuilder,
@@ -223,8 +224,8 @@ async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-def main():
-    """Main function to run the bot"""
+async def setup_bot():
+    """Set up and return the bot application"""
     # Build the application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -233,27 +234,64 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_expression))
 
-    # Get webhook configuration
+    # Set bot commands for the menu
+    commands = [
+        BotCommand("start", "Start the bot and see welcome message"),
+        BotCommand("help", "Show help and available functions"),
+    ]
+    
+    try:
+        await app.bot.set_my_commands(commands)
+    except Exception as e:
+        print(f"Warning: Could not set bot commands: {e}")
+
+    return app
+
+async def run_webhook(app):
+    """Run the bot in webhook mode"""
     webhook_url = os.environ.get("WEBHOOK_URL")
     port = int(os.environ.get("PORT", 10000))
     
-    if webhook_url:
-        # Production: Use webhooks
-        print(f"🌐 Starting webhook server on port {port}")
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=port,
-            url_path="/webhook",
-            webhook_url=f"{webhook_url}/webhook"
-        )
-    else:
-        # Development: Use polling
-        print("🤖 Calcinium bot is running with polling...")
-        app.run_polling(drop_pending_updates=True)
+    print(f"🌐 Starting webhook server on port {port}")
+    
+    await app.bot.set_webhook(url=f"{webhook_url}/webhook")
+    
+    # Start the webhook server
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path="/webhook",
+        webhook_url=f"{webhook_url}/webhook"
+    )
+
+async def run_polling(app):
+    """Run the bot in polling mode"""
+    print("🤖 Calcinium bot is running with polling...")
+    await app.run_polling(drop_pending_updates=True)
+
+async def main():
+    """Main async function"""
+    try:
+        # Set up the bot
+        app = await setup_bot()
+        
+        # Check if we should use webhook or polling
+        webhook_url = os.environ.get("WEBHOOK_URL")
+        
+        if webhook_url:
+            # Production: Use webhooks
+            await run_webhook(app)
+        else:
+            # Development: Use polling
+            await run_polling(app)
+            
+    except Exception as e:
+        print(f"❌ Error running bot: {e}")
+        raise
 
 if __name__ == "__main__":
     try:
-        main()
+        asyncio.run(main())
     except KeyboardInterrupt:
         print("\n🛑 Bot stopped by user")
     except Exception as e:
