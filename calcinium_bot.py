@@ -223,20 +223,10 @@ async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-async def main():
+def main():
+    """Main function to run the bot"""
     # Build the application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Set bot commands for the menu
-    commands = [
-        BotCommand("start", "Start the bot and see welcome message"),
-        BotCommand("help", "Show help and available functions"),
-    ]
-    
-    try:
-        await app.bot.set_my_commands(commands)
-    except Exception as e:
-        print(f"Warning: Could not set bot commands: {e}")
 
     # Add handlers
     app.add_handler(CommandHandler("start", start))
@@ -247,30 +237,23 @@ async def main():
     webhook_url = os.environ.get("WEBHOOK_URL")
     port = int(os.environ.get("PORT", 10000))
     
-    try:
-        if webhook_url:
-            # Production: Use webhooks
-            print(f"🌐 Starting webhook server on port {port}")
-            await app.bot.set_webhook(url=f"{webhook_url}/webhook")
-            await app.run_webhook(
-                listen="0.0.0.0",
-                port=port,
-                url_path="/webhook",
-                webhook_url=f"{webhook_url}/webhook"
-            )
-        else:
-            # Development: Use polling
-            print("🤖 Calcinium bot is running with polling...")
-            await app.run_polling(drop_pending_updates=True)
-    except Exception as e:
-        print(f"❌ Error running bot: {e}")
-        raise
+    if webhook_url:
+        # Production: Use webhooks
+        print(f"🌐 Starting webhook server on port {port}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path="/webhook",
+            webhook_url=f"{webhook_url}/webhook"
+        )
+    else:
+        # Development: Use polling
+        print("🤖 Calcinium bot is running with polling...")
+        app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
-    import asyncio
-    
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         print("\n🛑 Bot stopped by user")
     except Exception as e:
