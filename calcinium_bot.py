@@ -223,16 +223,6 @@ async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-async def shutdown_handler(app):
-    """Gracefully shutdown the application"""
-    print("🛑 Shutting down bot...")
-    try:
-        await app.stop()
-        await app.shutdown()
-        print("✅ Bot shutdown complete")
-    except Exception as e:
-        print(f"❌ Error during shutdown: {e}")
-
 async def main():
     # Build the application
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -252,27 +242,6 @@ async def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_expression))
-
-    # Setup signal handlers for graceful shutdown
-    def signal_handler(sig, frame):
-        print(f"\n🛑 Received signal {sig}, shutting down...")
-        # Create a new event loop for shutdown if needed
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(shutdown_handler(app))
-            else:
-                loop.run_until_complete(shutdown_handler(app))
-        except RuntimeError:
-            # If we can't get the loop, create a new one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(shutdown_handler(app))
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
 
     # Get webhook configuration
     webhook_url = os.environ.get("WEBHOOK_URL")
@@ -295,10 +264,7 @@ async def main():
             await app.run_polling(drop_pending_updates=True)
     except Exception as e:
         print(f"❌ Error running bot: {e}")
-        await shutdown_handler(app)
-    finally:
-        # Ensure cleanup
-        await shutdown_handler(app)
+        raise
 
 if __name__ == "__main__":
     import asyncio
