@@ -115,26 +115,13 @@ def is_math_expression(expr):
     if len(expr) > 100:
         return False
     
-    # Skip common idiomatic expressions
-    idiomatic_patterns = [
-        r'\b24\*7\b',  # 24*7 as idiom for 24/7
-        r'\b24\s*\*\s*7\b',  # 24 * 7 with spaces
-        r'\b7\*24\b',  # 7*24
-        r'\b365\*24\b',  # 365*24
-        r'\b24/7\b',  # 24/7
-    ]
-    
-    for pattern in idiomatic_patterns:
-        if re.search(pattern, expr, re.IGNORECASE):
-            return False
-    
-    # Skip if it contains letters mixed with numbers in a non-mathematical way
-    # This catches things like "work 24*7" or "available 24*7"
-    if re.search(r'[a-zA-Z]\s*\d+\s*[\*\+\-\/]\s*\d+', expr) or re.search(r'\d+\s*[\*\+\-\/]\s*\d+\s*[a-zA-Z]', expr):
-        return False
-    
     # Must contain at least one digit
     if not any(char.isdigit() for char in expr):
+        return False
+    
+    # Skip if it contains letters mixed with numbers in a non-mathematical way
+    # This catches things like "work 24*7" or "available 24*7" but allows standalone "24*7"
+    if re.search(r'[a-zA-Z]\s+\d+\s*[\*\+\-\/]\s*\d+', expr) or re.search(r'\d+\s*[\*\+\-\/]\s*\d+\s+[a-zA-Z]', expr):
         return False
     
     # Must be relatively short and focused
@@ -142,7 +129,7 @@ def is_math_expression(expr):
     if len(words) > 5:  # If more than 5 words, likely not a math expression
         return False
     
-    # Ignore if it contains common non-math words
+    # Only ignore if it contains non-math words in a sentence context
     non_math_words = [
         'work', 'available', 'online', 'service', 'support', 'help',
         'hours', 'days', 'time', 'schedule', 'shift', 'open',
@@ -157,21 +144,13 @@ def is_math_expression(expr):
         'host', 'server', 'bot', 'it', 'this', 'that', 'the'
     ]
     
-    # Check if expression contains non-math context words
-    for word in words:
-        # Remove punctuation for word checking
-        clean_word = re.sub(r'[^\w]', '', word.lower())
-        if clean_word in non_math_words:
-            return False
-    
-    # Expression should be mostly mathematical symbols and numbers
-    # Count mathematical vs non-mathematical characters
-    math_chars = len(re.findall(r'[\d\+\-\*/\^\(\)\.\s]', expr))
-    total_chars = len(expr)
-    
-    # If less than 70% mathematical characters, probably not a math expression
-    if total_chars > 0 and (math_chars / total_chars) < 0.7:
-        return False
+    # Check if expression contains non-math context words (only if more than 1 word)
+    if len(words) > 1:
+        for word in words:
+            # Remove punctuation for word checking
+            clean_word = re.sub(r'[^\w]', '', word.lower())
+            if clean_word in non_math_words:
+                return False
     
     # Must contain mathematical operators (not just functions)
     operator_patterns = [
@@ -192,15 +171,7 @@ def is_math_expression(expr):
     
     has_function = any(re.search(pattern, expr.lower()) for pattern in function_patterns)
     
-    # Must be a standalone mathematical expression or start with clear math intent
-    if not (has_operator or has_function):
-        return False
-    
-    # Additional check: if it's a simple expression like "24*7" without math context, skip it
-    if re.match(r'^\s*\d+\s*\*\s*\d+\s*$', expr) and not any(word in expr.lower() for word in ['calculate', 'compute', 'solve', '=']):
-        return False
-    
-    return True
+    return has_operator or has_function
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
