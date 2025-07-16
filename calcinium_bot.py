@@ -236,12 +236,25 @@ async def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_expression))
 
-    print("🤖 Calcinium bot is running...")
-    await app.run_polling()
+    # Use webhooks instead of polling for web service deployment
+    webhook_url = os.environ.get("WEBHOOK_URL")
+    port = int(os.environ.get("PORT", 10000))
+    
+    if webhook_url:
+        # Production: Use webhooks
+        print(f"🌐 Starting webhook server on port {port}")
+        await app.bot.set_webhook(url=f"{webhook_url}/webhook")
+        await app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path="/webhook",
+            webhook_url=f"{webhook_url}/webhook"
+        )
+    else:
+        # Development: Use polling
+        print("🤖 Calcinium bot is running with polling...")
+        await app.run_polling()
 
 if __name__ == "__main__":
     import asyncio
-    import nest_asyncio
-    nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(main())
-    
+    asyncio.run(main())
