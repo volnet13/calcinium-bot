@@ -3,22 +3,29 @@ import math
 import re
 import ast
 import operator
-import signal
 import sys
-import asyncio
-from telegram import Update, BotCommand
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters
+import logging
+from flask import Flask, request
+import telebot
+from telebot import types
+
+# Configure logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
 # Get bot token from environment variable
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is required. Please set it in your hosting platform.")
+
+# Initialize bot
+bot = telebot.TeleBot(BOT_TOKEN)
+
+# Flask app for webhook
+app = Flask(__name__)
 
 # Safer evaluation using AST
 def safe_eval(expr):
@@ -83,11 +90,12 @@ def safe_eval(expr):
                 raise ValueError(f"Operator {type(node.op).__name__} not allowed")
             return op(operand)
         elif isinstance(node, ast.Call):  # Function calls
-            if node.func.id in allowed_functions:
+            if hasattr(node.func, 'id') and node.func.id in allowed_functions:
                 args = [eval_node(arg) for arg in node.args]
                 return allowed_functions[node.func.id](*args)
             else:
-                raise ValueError(f"Function '{node.func.id}' not allowed")
+                func_name = getattr(node.func, 'id', 'unknown')
+                raise ValueError(f"Function '{func_name}' not allowed")
         else:
             raise ValueError(f"Node type {type(node)} not allowed")
     
@@ -147,7 +155,8 @@ def is_math_expression(expr):
     
     return has_operator or has_function
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@bot.message_handler(commands=['start'])
+def start_command(message):
     welcome_msg = (
         "🤖 *Welcome to Calcinium!*\n\n"
         "I'm your mathematical calculator bot. Send me any math expression and I'll solve it!\n\n"
@@ -156,11 +165,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `sqrt(16) + pow(2, 3)`\n"
         "• `sin(pi/2) + cos(0)`\n"
         "• `log(e) + factorial(5)`\n\n"
-        "Use `/help` for more information."
+        "Use /help for more information."
     )
-    await update.message.reply_text(welcome_msg, parse_mode="Markdown")
+    bot.reply_to(message, welcome_msg, parse_mode="Markdown")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@bot.message_handler(commands=['help'])
+def help_command(message):
     help_msg = (
         "🧠 *Calcinium Help*\n\n"
         "*Supported Operations:*\n"
@@ -182,10 +192,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• `log(e)` → 1.0\n\n"
         "Just send me any mathematical expression!"
     )
-    await update.message.reply_text(help_msg, parse_mode="Markdown")
+    bot.reply_to(message, help_msg, parse_mode="Markdown")
 
-async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    expr = update.message.text.strip()
+@bot.message_handler(func=lambda message: True)
+def handle_expression(message):
+    expr = message.text.strip()
     
     # Check if it looks like a math expression
     if not is_math_expression(expr):
@@ -206,106 +217,62 @@ async def handle_expression(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🎯 *Result:* `{result}`"
         )
         
-        await update.message.reply_text(response, parse_mode="Markdown")
+        bot.reply_to(message, response, parse_mode="Markdown")
         
     except ZeroDivisionError:
-        await update.message.reply_text(
-            "❌ *Error:* Division by zero is not allowed!",
-            parse_mode="Markdown"
-        )
+        bot.reply_to(message, "❌ *Error:* Division by zero is not allowed!", parse_mode="Markdown")
     except ValueError as e:
-        await update.message.reply_text(
-            f"❌ *Error:* {str(e)}",
-            parse_mode="Markdown"
-        )
+        bot.reply_to(message, f"❌ *Error:* {str(e)}", parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(
-            "❌ *Error:* Invalid mathematical expression. Use `/help` for examples.",
-            parse_mode="Markdown"
-        )
+        bot.reply_to(message, "❌ *Error:* Invalid mathematical expression. Use /help for examples.", parse_mode="Markdown")
 
-async def setup_bot():
-    """Set up and return the bot application"""
-    # Build the application
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+# Webhook route
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return ''
+    else:
+        return 'Bad Request', 400
 
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_expression))
+# Health check route
+@app.route('/health', methods=['GET'])
+def health():
+    return 'OK', 200
 
-    # Set bot commands for the menu
-    commands = [
-        BotCommand("start", "Start the bot and see welcome message"),
-        BotCommand("help", "Show help and available functions"),
-    ]
-    
+def main():
+    """Main function to run the bot"""
     try:
-        await app.bot.set_my_commands(commands)
-    except Exception as e:
-        print(f"Warning: Could not set bot commands: {e}")
-
-    return app
-
-async def run_webhook(app):
-    """Run the bot in webhook mode"""
-    webhook_url = os.environ.get("WEBHOOK_URL")
-    port = int(os.environ.get("PORT", 10000))
-    
-    print(f"🌐 Starting webhook server on port {port}")
-    
-    await app.bot.set_webhook(url=f"{webhook_url}/webhook")
-    
-    # Start the webhook server
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path="/webhook",
-        webhook_url=f"{webhook_url}/webhook"
-    )
-
-async def run_polling(app):
-    """Run the bot in polling mode"""
-    print("🤖 Calcinium bot is running with polling...")
-    await app.run_polling(drop_pending_updates=True)
-
-async def main():
-    """Main async function"""
-    try:
-        # Set up the bot
-        app = await setup_bot()
-        
-        # Check if we should use webhook or polling
+        # Get webhook configuration
         webhook_url = os.environ.get("WEBHOOK_URL")
+        port = int(os.environ.get("PORT", 10000))
         
         if webhook_url:
             # Production: Use webhooks
-            await run_webhook(app)
+            logger.info(f"🌐 Setting up webhook: {webhook_url}/webhook")
+            bot.remove_webhook()
+            bot.set_webhook(url=f"{webhook_url}/webhook")
+            
+            # Set bot commands
+            commands = [
+                types.BotCommand("start", "Start the bot and see welcome message"),
+                types.BotCommand("help", "Show help and available functions"),
+            ]
+            bot.set_my_commands(commands)
+            
+            logger.info(f"🚀 Starting webhook server on port {port}")
+            app.run(host='0.0.0.0', port=port, debug=False)
         else:
             # Development: Use polling
-            await run_polling(app)
+            logger.info("🤖 Calcinium bot is running with polling...")
+            bot.remove_webhook()
+            bot.infinity_polling(none_stop=True)
             
     except Exception as e:
-        print(f"❌ Error running bot: {e}")
-        raise
+        logger.error(f"❌ Fatal error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    try:
-        try:
-            # Try to get the running event loop (for environments like Jupyter)
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # If there's a running loop, create a task
-            task = loop.create_task(main())
-            # Optionally, you can add: loop.run_until_complete(task) if not running
-        else:
-            asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n🛑 Bot stopped by user")
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-    finally:
-        print("👋 Goodbye!")
+    main()
