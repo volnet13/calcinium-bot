@@ -291,7 +291,18 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        try:
+            # Try to get the running event loop (for environments like Jupyter)
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # If there's a running loop, create a task
+            task = loop.create_task(main())
+            # Optionally, you can add: loop.run_until_complete(task) if not running
+        else:
+            asyncio.run(main())
     except KeyboardInterrupt:
         print("\n🛑 Bot stopped by user")
     except Exception as e:
