@@ -31,6 +31,10 @@ app = Flask(__name__)
 def safe_eval(expr):
     """Safely evaluate mathematical expressions using AST parsing"""
     
+    # Normalize the expression - convert to lowercase for function names
+    # but preserve case for constants
+    expr = preprocess_expression(expr)
+    
     # Allowed operators
     allowed_ops = {
         ast.Add: operator.add,
@@ -108,6 +112,52 @@ def safe_eval(expr):
     except Exception as e:
         raise ValueError(f"Invalid expression: {str(e)}")
 
+def preprocess_expression(expr):
+    """Preprocess expression to handle case sensitivity and operator normalization"""
+    
+    # Convert ** to pow() function calls for better compatibility
+    expr = convert_power_operator(expr)
+    
+    # List of function names that should be lowercase
+    function_names = [
+        'sin', 'cos', 'tan', 'sqrt', 'log', 'log10', 'exp', 
+        'abs', 'round', 'pow', 'ceil', 'floor', 'factorial', 
+        'degrees', 'radians'
+    ]
+    
+    # Make function names case-insensitive
+    for func in function_names:
+        # Replace case-insensitive function names with lowercase
+        pattern = re.compile(re.escape(func), re.IGNORECASE)
+        expr = pattern.sub(func, expr)
+    
+    # Make constants case-insensitive
+    constants = {'pi': math.pi, 'e': math.e}
+    for const in constants:
+        pattern = re.compile(r'\b' + re.escape(const) + r'\b', re.IGNORECASE)
+        expr = pattern.sub(const, expr)
+    
+    return expr
+
+def convert_power_operator(expr):
+    """Convert ** operator to pow() function calls"""
+    # Simple regex to handle most cases of ** operator
+    # This handles cases like: 2**3, (2+3)**4, x**y
+    pattern = r'([a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|\([^)]+\))\s*\*\*\s*([a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|\([^)]+\))'
+    
+    def replace_power(match):
+        base = match.group(1)
+        exponent = match.group(2)
+        return f'pow({base}, {exponent})'
+    
+    # Keep replacing until no more ** operators found
+    prev_expr = None
+    while prev_expr != expr:
+        prev_expr = expr
+        expr = re.sub(pattern, replace_power, expr)
+    
+    return expr
+
 def is_math_expression(expr):
     """Check if the text looks like a mathematical expression"""
     
@@ -115,8 +165,9 @@ def is_math_expression(expr):
     if len(expr) > 100:
         return False
     
-    # Must contain at least one digit
-    if not any(char.isdigit() for char in expr):
+    # Must contain at least one digit or mathematical constant
+    if not (any(char.isdigit() for char in expr) or 
+            re.search(r'\b(pi|e)\b', expr.lower())):
         return False
     
     # Skip if it contains letters mixed with numbers in a non-mathematical way
@@ -152,10 +203,11 @@ def is_math_expression(expr):
             if clean_word in non_math_words:
                 return False
     
-    # Must contain mathematical operators (not just functions)
+    # Must contain mathematical operators or functions or constants
     operator_patterns = [
         r'\d+\s*[\+\-\*/\^%]\s*\d+',  # Number operator number
-        r'\([^)]*[\+\-\*/\^%][^)]*\)',  # Operations within parentheses
+        r'\([^)]*[\+\-\*/\^%\*\*][^)]*\)',  # Operations within parentheses
+        r'\*\*',  # Power operator
     ]
     
     has_operator = any(re.search(pattern, expr) for pattern in operator_patterns)
@@ -171,7 +223,10 @@ def is_math_expression(expr):
     
     has_function = any(re.search(pattern, expr.lower()) for pattern in function_patterns)
     
-    return has_operator or has_function
+    # OR contains mathematical constants
+    has_constant = re.search(r'\b(pi|e)\b', expr.lower())
+    
+    return has_operator or has_function or has_constant
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
@@ -182,7 +237,9 @@ def start_command(message):
         "• `2 + 2 * 5`\n"
         "• `sqrt(16) + pow(2, 3)`\n"
         "• `sin(pi/2) + cos(0)`\n"
-        "• `log(e) + factorial(5)`\n\n"
+        "• `log(e) + factorial(5)`\n"
+        "• `2**3` (power operator)\n"
+        "• `Pi/2` (case insensitive)\n\n"
         "Use /help for more information."
     )
     bot.reply_to(message, welcome_msg, parse_mode="Markdown")
@@ -202,12 +259,18 @@ def help_command(message):
         "*Constants:*\n"
         "• `pi` (π ≈ 3.14159)\n"
         "• `e` (≈ 2.71828)\n\n"
+        "*Features:*\n"
+        "• Case insensitive functions: `Sin`, `COS`, `Factorial`\n"
+        "• Power operator: `2**3` or `pow(2,3)`\n"
+        "• Constants in expressions: `pi/2`, `e/2`\n\n"
         "*Examples:*\n"
         "• `2 + 2 * 5` → 12\n"
         "• `sqrt(16) + pow(2, 3)` → 12.0\n"
         "• `sin(pi/2)` → 1.0\n"
         "• `factorial(5)` → 120\n"
-        "• `log(e)` → 1.0\n\n"
+        "• `log(e)` → 1.0\n"
+        "• `2**3` → 8\n"
+        "• `Pi/4` → 0.7854\n\n"
         "Just send me any mathematical expression!"
     )
     bot.reply_to(message, help_msg, parse_mode="Markdown")
